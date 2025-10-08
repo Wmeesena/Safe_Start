@@ -6,39 +6,58 @@ from torch.utils.data import TensorDataset, DataLoader
 # --- optional: small speed win on CUDA for fixed-size batches ---
 torch.backends.cudnn.benchmark = True
 
+from contextlib import nullcontext
+
 def pretrain(X, y, model, num_epochs=10000, lr=1e-3, batch_size=256, use_amp=True, device=None):
     """
     Pretrain with BCEWithLogitsLoss on mini-batches, GPU if available.
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(device)
 
     model = model.to(device)
-    # keep tensors on CPU and move per-batch (scales to larger data),
-    # but will also work if X/y are already on device.
-    ds = TensorDataset(X, y)
-    dl = DataLoader(ds, batch_size=batch_size, shuffle=True, pin_memory=(device.type=="cuda"))
+
+    ds = TensorDataset(X, y)  # X,y should be on CPU for pin_memory to work best
+    dl = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=(device.type == "cuda"),
+        num_workers=2,
+        prefetch_factor=2,
+        persistent_workers=True
+    )
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and device.type=="cuda"))
+
+    amp_enabled = use_amp and (device.type == "cuda")
+    scaler = torch.amp.GradScaler("cuda") if amp_enabled else None
+    autocast_ctx = torch.amp.autocast("cuda", dtype=torch.float16) if amp_enabled else nullcontext()
 
     for _ in range(num_epochs):
         model.train()
         for xb, yb in dl:
             xb = xb.to(device, non_blocking=True)
-            yb = yb.to(device, non_blocking=True)
+            yb = yb.to(device, non_blocking=True).squeeze(-1).float()
 
             optimizer.zero_grad(set_to_none=True)
-            with torch.cuda.amp.autocast(enabled=(use_amp and device.type=="cuda")):
+            with autocast_ctx:
                 outputs = model(xb).squeeze(-1)
-                loss = criterion(outputs, yb.squeeze(-1).float())
+                loss = criterion(outputs, yb)
 
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            if amp_enabled:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
 
     return model
+
 
 
 @torch.no_grad()
