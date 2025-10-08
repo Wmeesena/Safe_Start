@@ -3,7 +3,7 @@ import torch
 
 
 
-def load_magic_data(device=None, train_n=15000, seed=41):
+def load_magic_data(device="cpu", train_n=15000, seed=41):
     """
     Load MAGIC Gamma Telescope and return torch tensors on `device`.
     device: "cuda", "cpu", or None (auto: cuda if available)
@@ -13,8 +13,6 @@ def load_magic_data(device=None, train_n=15000, seed=41):
         X_test:  (~4020, 10)
         y_test:  (~4020,)
     """
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device)
 
     magic_gamma_telescope = fetch_ucirepo(id=159) 
