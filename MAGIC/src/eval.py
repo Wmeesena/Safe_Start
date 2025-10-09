@@ -53,10 +53,6 @@ def evaluate_avg_accuracy(X, y, model, seed=42, conf=0.95):
     return acc, (lo, hi)
 
 def evaluate_robust(X, y, model, num_samples=100, sigma=0.1, seed=42, conf=0.95, B=1000, J_chunk=None):
-    """
-    Runs on CPU or GPU. Noise is generated on X/model device.
-    Optional J_chunk to avoid OOM (e.g., J_chunk=64).
-    """
     torch.manual_seed(seed)
     device = _model_device(model)
     dtype = X.dtype
@@ -64,38 +60,33 @@ def evaluate_robust(X, y, model, num_samples=100, sigma=0.1, seed=42, conf=0.95,
         xb = X.to(device, non_blocking=True)
         yb = y.to(device, non_blocking=True)
 
-        # clean correctness
+        # clean correctness mask (bool)
         outputs_clean = model(xb).squeeze(-1)
-        predicted_clean = (torch.sigmoid(outputs_clean) >= 0.5).float()
-        correct_mask = (predicted_clean == yb.squeeze(-1).float()).float()  # (N,)
-        correct_bool = (correct_mask == 1)
+        predicted_clean = (torch.sigmoid(outputs_clean) >= 0.5)
+        correct_bool = (predicted_clean == yb.squeeze(-1).bool())
 
         N = xb.shape[0]
         J = int(num_samples)
-        if J_chunk is None or J_chunk <= 0 or J_chunk > J:
+        if not J_chunk or J_chunk > J:
             J_chunk = J
 
-        # accumulate per-example robust accuracy across chunks
-        acc_sum = torch.zeros(N, device=device, dtype=torch.float32)
+        sum_correct = torch.zeros(N, device=device, dtype=torch.float32)
         total_J = 0
-
         remain = J
         while remain > 0:
             m = min(remain, J_chunk)
             remain -= m
             total_J += m
 
-            # noisy copies on same device/dtype
             eps = sigma * torch.randn((m,) + xb.shape, device=device, dtype=dtype)  # (m,N,feat...)
-            x_noisy = xb.unsqueeze(0) + eps                                         # (m,N,feat...)
-            # forward: model supports broadcasting over leading dims -> (m,N,1)
-            outputs_noise = model(x_noisy).squeeze(-1)                              # (m,N)
-            predicted_noise = (torch.sigmoid(outputs_noise) >= 0.5).float()
-            y_noise = yb.expand(m, *yb.shape)                                       # (m,N,1) or (m,N)
-            acc_chunk = (predicted_noise == y_noise.squeeze(-1).float()).float().mean(dim=0)  # (N,)
-            acc_sum += acc_chunk
+            x_noisy = xb.unsqueeze(0) + eps                                          # (m,N,feat...)
+            outputs_noise = model(x_noisy).squeeze(-1)                                # (m,N)
+            predicted_noise = (torch.sigmoid(outputs_noise) >= 0.5)
+            y_noise = yb.expand(m, *yb.shape)                                         # (m,N,1) or (m,N)
+            acc_chunk_sum = (predicted_noise == y_noise.squeeze(-1).bool()).float().sum(dim=0)  # (N,)
+            sum_correct += acc_chunk_sum
 
-        acc_per_example = acc_sum / max(total_J, 1)  # (N,)
+        acc_per_example = sum_correct / max(total_J, 1)  # (N,)
 
         # RA
         RA = float(acc_per_example.mean().item())
@@ -107,13 +98,13 @@ def evaluate_robust(X, y, model, num_samples=100, sigma=0.1, seed=42, conf=0.95,
             CRA = float(acc_on_correct.mean().item())
             CRA_lo, CRA_hi = _bootstrap_mean_ci(acc_on_correct.detach().cpu().numpy(), conf=conf, B=B, seed=seed)
         else:
-            CRA = 0.0
-            CRA_lo, CRA_hi = 0.0, 0.0
+            CRA, CRA_lo, CRA_hi = 0.0, 0.0, 0.0
 
         print(f'Robust Accuracy: {RA*100:.5f}%  (CI {int(conf*100)}%: [{RA_lo*100:.5f}%, {RA_hi*100:.5f}%])')
         print(f'Conditional Robust Accuracy: {CRA*100:.5f}%  (CI {int(conf*100)}%: [{CRA_lo*100:.5f}%, {CRA_hi*100:.5f}%])')
 
     return (RA, (RA_lo, RA_hi)), (CRA, (CRA_lo, CRA_hi))
+
 
 def eval_one(model, X_test, y_test, sigma, SAMPLES_EVAL, conf=0.95, B=1000, J_chunk=None):
     acc, acc_ci = evaluate_avg_accuracy(X_test, y_test, model, conf=conf)
@@ -122,21 +113,21 @@ def eval_one(model, X_test, y_test, sigma, SAMPLES_EVAL, conf=0.95, B=1000, J_ch
     )
     return {"acc": acc, "acc_ci": acc_ci, "RA": RA, "RA_ci": RA_ci, "CRA": CRA, "CRA_ci": CRA_ci}
 
-def eval_all(results, X_test, y_test, SIGMA, SAMPLES_EVAL, metrics, order=None, **kw):
+def eval_all(results, X_test, y_test, SIGMA, SAMPLES_EVAL, order=None, **kw):
     # Evaluate 3×2
-    keys = order or [("naive","adam"), ("naive","sgd"),
-                     ("safe","adam"), ("safe","sgd"),
-                     ("safe_neg","adam"), ("safe_neg","sgd")]
-    for cfg, opt in keys:
+    metrics = {}  # (cfg,opt) -> metric dict
+    for cfg, opt in results.keys():
         model, _hist = results[(cfg, opt)]
         metrics[(cfg, opt)] = eval_one(model, X_test, y_test, SIGMA, SAMPLES_EVAL, **kw)
 
     # Print compact summary (stable order)
     print("\n=== Summary (mean ± 95% CI) ===")
-    for cfg, opt in keys:
+    for cfg, opt in results.keys():
         m = metrics[(cfg, opt)]
         line = (f"{cfg:9s} ({opt.upper():4s}):  "
                 f"Acc {pct(m['acc'])} {pct_ci(m['acc_ci'])}  |  "
                 f"RA {pct(m['RA'])} {pct_ci(m['RA_ci'])}  |  "
                 f"CRA {pct(m['CRA'])} {pct_ci(m['CRA_ci'])}")
         print(line)
+
+    return metrics

@@ -3,7 +3,7 @@ import torch
 
 
 
-def load_magic_data(device="cpu", train_n=15000, seed=41):
+def load_magic_data(device="cpu", train_n=14000, seed=41):
     """
     Load MAGIC Gamma Telescope and return torch tensors on `device`.
     device: "cuda", "cpu", or None (auto: cuda if available)

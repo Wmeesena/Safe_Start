@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from tqdm.auto import tqdm
 from torch.utils.data import TensorDataset, DataLoader
 
 # --- optional: small speed win on CUDA for fixed-size batches ---
@@ -37,7 +38,7 @@ def pretrain(X, y, model, num_epochs=10000, lr=1e-3, batch_size=256, use_amp=Tru
     scaler = torch.amp.GradScaler("cuda") if amp_enabled else None
     autocast_ctx = torch.amp.autocast("cuda", dtype=torch.float16) if amp_enabled else nullcontext()
 
-    for _ in range(num_epochs):
+    for epoch in tqdm(range(1, num_epochs + 1), desc="Epochs", dynamic_ncols=True):
         model.train()
         for xb, yb in dl:
             xb = xb.to(device, non_blocking=True)
@@ -93,19 +94,24 @@ def _rare_event_margin_binary(model, x, y, sigma=0.1, J=10):
     return margin_masked.mean()
 
 
+
+
 def joint_train(
     X, y, pre_model, num_epochs=100,
     gamma=1000, num_samples=10, sigma=0.1, IF_SAFE=False, SAFE_BIAS=1000,
     batch_size=256,
     opt="adam", lr=1e-3, weight_decay=0.0, betas=(0.9, 0.999),
-    sgd_momentum=0.9, sgd_nesterov=False,
+    sgd_momentum=0.0, sgd_nesterov=False,
     use_amp=True, device=None
 ):
     """
     Train with average BCE + γ * rare-event margin, mini-batches, GPU if available.
+    Shows a tqdm bar over epochs (and an inner bar over batches).
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(device)
 
     torch.manual_seed(42)
 
@@ -117,9 +123,17 @@ def joint_train(
         with torch.no_grad():
             new_model.fc_last.bias.fill_(SAFE_BIAS)
 
-    # Keep data on CPU; move per batch (works even if already on device)
+    # Keep data on CPU; move per batch
     ds = TensorDataset(X, y)
-    dl = DataLoader(ds, batch_size=batch_size, shuffle=True, pin_memory=(device.type=="cuda"))
+    dl = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=(device.type == "cuda"),
+        num_workers=2,
+        prefetch_factor=2,
+        persistent_workers=True
+    )
 
     criterion = nn.BCEWithLogitsLoss()
 
@@ -131,44 +145,65 @@ def joint_train(
         if key == "adam":
             optimizer = optim.Adam(new_model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
         elif key == "sgd":
-            optimizer = optim.SGD(new_model.parameters(), lr=lr, momentum=sgd_momentum,
+            optimizer = optim.SGD(new_model.parameters(), lr=lr/10.0, momentum=sgd_momentum,
                                   nesterov=sgd_nesterov, weight_decay=weight_decay)
         else:
             raise ValueError(f"Unknown opt='{opt}'")
 
-    scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and device.type=="cuda"))
+    # AMP (new API)
+    amp_enabled = use_amp and (device.type == "cuda")
+    scaler = torch.amp.GradScaler("cuda") if amp_enabled else None
+    autocast_ctx = torch.amp.autocast("cuda", dtype=torch.float16) if amp_enabled else nullcontext()
 
     history = {"epoch": [], "loss": [], "loss_avg": [], "loss_rare": [], "optimizer": str(opt)}
 
-    for epoch in range(num_epochs):
+    # Epoch progress bar
+    for epoch in tqdm(range(1, num_epochs + 1), desc="Epochs", dynamic_ncols=True):
         new_model.train()
         tot = tot_avg = tot_rare = 0.0
         n_batches = 0
 
+        # Inner per-batch bar (set leave=False to keep output clean)
         for xb, yb in dl:
             xb = xb.to(device, non_blocking=True)
-            yb = yb.to(device, non_blocking=True)
+            yb = yb.to(device, non_blocking=True).squeeze(-1).float()
 
             optimizer.zero_grad(set_to_none=True)
-            with torch.cuda.amp.autocast(enabled=(use_amp and device.type=="cuda")):
+            with autocast_ctx:
                 logits_clean = new_model(xb).squeeze(-1)
-                loss_avg = criterion(logits_clean, yb.squeeze(-1).float())
+                loss_avg = criterion(logits_clean, yb)
                 loss_rare = _rare_event_margin_binary(new_model, xb, yb, sigma=sigma, J=num_samples)
                 loss = loss_avg + gamma * loss_rare
 
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            if amp_enabled:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
 
-            tot += loss.item(); tot_avg += loss_avg.item(); tot_rare += loss_rare.item()
+            tot += float(loss)
+            tot_avg += float(loss_avg)
+            tot_rare += float(loss_rare)
             n_batches += 1
 
-        history["epoch"].append(epoch + 1)
-        history["loss"].append(tot / n_batches)
-        history["loss_avg"].append(tot_avg / n_batches)
-        history["loss_rare"].append(tot_rare / n_batches)
+        epoch_loss = tot / max(1, n_batches)
+        epoch_avg  = tot_avg / max(1, n_batches)
+        epoch_rare = tot_rare / max(1, n_batches)
+
+        history["epoch"].append(epoch)
+        history["loss"].append(epoch_loss)
+        history["loss_avg"].append(epoch_avg)
+        history["loss_rare"].append(epoch_rare)
+
+        # Show running stats on the epoch bar
+        if epoch % 10 == 0: 
+            tqdm.write(f"[epoch {epoch:03d}] loss={epoch_loss:.4f} | avg={epoch_avg:.4f} | rare={epoch_rare:.4f}")
 
     return new_model, history
+
+
 
 
 def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=None, **kw):
