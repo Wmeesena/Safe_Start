@@ -107,7 +107,7 @@ def evaluate_avg_accuracy(X, y, model, seed=42, conf=0.95):
 #     return (RA, (RA_lo, RA_hi)), (CRA, (CRA_lo, CRA_hi))
 
 
-def eval_one(model, X_test, y_test, sigma, SAMPLES_EVAL, conf=0.95, B=1000, J_chunk=None):
+def eval_one(model, X_test, y_test, sigma, SAMPLES_EVAL, conf=0.95, B=1000, J_chunk=None, N_chunk =5000):
     acc, acc_ci = evaluate_avg_accuracy(X_test, y_test, model, conf=conf)
     (RA, RA_ci), (CRA, CRA_ci) = evaluate_robust(
         X_test, y_test, model, num_samples=2*SAMPLES_EVAL, sigma=sigma, conf=conf, B=B, J_chunk=J_chunk
@@ -119,7 +119,7 @@ def eval_all(results, X_test, y_test, SIGMA, SAMPLES_EVAL, order=None, **kw):
     metrics = {}  # (cfg,opt) -> metric dict
     for cfg, opt in results.keys():
         model, _hist = results[(cfg, opt)]
-        metrics[(cfg, opt)] = eval_one(model, X_test, y_test, SIGMA, SAMPLES_EVAL, **kw)
+        metrics[(cfg, opt)] = eval_one(model, X_test, y_test, SIGMA, SAMPLES_EVAL, N_chunk =5000, **kw)
 
     # Print compact summary (stable order)
     print("\n=== Summary (mean ± 95% CI) ===")
