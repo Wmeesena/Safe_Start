@@ -138,7 +138,7 @@ def eval_all(results, X_test, y_test, SIGMA, SAMPLES_EVAL, order=None, **kw):
 
 def evaluate_robust(
     X, y, model, num_samples=100, sigma=0.1, seed=42, conf=0.95, B=1000,
-    J_chunk=None, N_chunk=None  # <-- only addition; optional
+    J_chunk=None, N_chunk=5000  # <-- only addition; optional
 ):
     """
     Same API as before; computes RA and CRA correctly.
