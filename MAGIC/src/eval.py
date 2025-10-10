@@ -3,7 +3,7 @@ import math
 import numpy as np
 from src.utils import pct, pct_ci
 from math import ceil
-
+from contextlib import nullcontext
 # ---------- helpers ----------
 def _wilson_interval(k, n, conf=0.95, eps=1e-12):
     if n == 0: return (0.0, 0.0)
@@ -134,11 +134,7 @@ def eval_all(results, X_test, y_test, SIGMA, SAMPLES_EVAL, order=None, **kw):
     return metrics
 
 
-import torch
-from math import ceil
 
-from math import ceil
-from contextlib import nullcontext
 
 def evaluate_robust(
     X, y, model, num_samples=100, sigma=0.1, seed=42, conf=0.95, B=1000,
@@ -155,7 +151,7 @@ def evaluate_robust(
 
     # Default: keep original behavior (no dataset chunking)
     if N_chunk is None or N_chunk <= 0:
-        N_chunk = X.shape[0]
+        N_chunk = int(X.shape[0]/10)
 
     # We'll collect per-example robust accuracies and clean-correct flags on CPU
     acc_per_example_parts = []
