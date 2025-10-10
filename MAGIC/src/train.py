@@ -98,7 +98,7 @@ def _rare_event_margin_binary(model, x, y, sigma=0.1, J=10):
 
 def joint_train(
     X, y, pre_model, num_epochs=100,
-    gamma=1000, num_samples=10, sigma=0.1, IF_SAFE=False, SAFE_BIAS=1000,
+    gamma=1000, num_samples=10, sigma=0.1, IF_SAFE=False, SAFE_BIAS=100,
     batch_size=256,
     opt="adam", lr=1e-3, weight_decay=0.0, betas=(0.9, 0.999),
     sgd_momentum=0.0, sgd_nesterov=False,
@@ -206,7 +206,7 @@ def joint_train(
 
 
 
-def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=None, **kw):
+def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=None, opts = ["adam", "sgd"],**kw):
     """
     Train (naive, safe, safe_neg) × (Adam, SGD) on chosen device.
     """
@@ -215,7 +215,7 @@ def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=Non
 
     results = {}   # results[("naive","adam")] = (model, hist)
 
-    for opt in ["adam", "sgd"]:
+    for opt in opts:
         print(f"\nTraining naive with {opt}...")
         naive_model, naive_hist = joint_train(
             X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
@@ -227,7 +227,7 @@ def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=Non
         print(f"\nTraining safe with {opt}...")
         safe_model, safe_hist = joint_train(
             X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=1000,
+            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=100,
             opt=opt, device=device, **kw
         )
         results[("safe", opt)] = (safe_model, safe_hist)
@@ -235,7 +235,7 @@ def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=Non
         print(f"\nTraining safe_neg with {opt}...")
         safe_neg_model, safe_neg_hist = joint_train(
             X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=-1000,
+            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=-100,
             opt=opt, device=device, **kw
         )
         results[("safe_neg", opt)] = (safe_neg_model, safe_neg_hist)
