@@ -175,13 +175,14 @@ def joint_train(
                 loss_rare = _rare_event_margin_binary(new_model, xb, yb, sigma=sigma, J=num_samples)
                 loss = loss_avg + gamma * loss_rare
 
-            if amp_enabled:
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                loss.backward()
-                optimizer.step()
+            if epoch >1:  # skip backward on epoch 1 to keep initial model intact for eval
+                if amp_enabled:
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    optimizer.step()
 
             tot += float(loss)
             tot_avg += float(loss_avg)
@@ -198,8 +199,8 @@ def joint_train(
         history["loss_rare"].append(epoch_rare)
 
         # Show running stats on the epoch bar
-        if epoch % 10 == 0: 
-            tqdm.write(f"[epoch {epoch:03d}] loss={epoch_loss:.4f} | avg={epoch_avg:.4f} | rare={epoch_rare:.4f}")
+        
+        tqdm.write(f"[epoch {epoch:03d}] loss={epoch_loss:.4f} | avg={epoch_avg:.4f} | rare={epoch_rare:.4f}")
 
     return new_model, history
 
