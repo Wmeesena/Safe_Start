@@ -200,7 +200,7 @@ def joint_train(
 
         # Show running stats on the epoch bar
         
-        tqdm.write(f"[epoch {epoch:03d}] loss={epoch_loss:.4f} | avg={epoch_avg:.4f} | rare={epoch_rare:.4f}")
+        tqdm.write(f"[epoch {epoch:07d}] loss={epoch_loss:.7f} | avg={epoch_avg:.7f} | rare={epoch_rare:.7f}")
 
     return new_model, history
 
