@@ -145,7 +145,7 @@ def joint_train(
         if key == "adam":
             optimizer = optim.Adam(new_model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
         elif key == "sgd":
-            optimizer = optim.SGD(new_model.parameters(), lr=lr/10.0, momentum=sgd_momentum,
+            optimizer = optim.SGD(new_model.parameters(), lr=lr, momentum=sgd_momentum,
                                   nesterov=sgd_nesterov, weight_decay=weight_decay)
         else:
             raise ValueError(f"Unknown opt='{opt}'")
@@ -228,7 +228,7 @@ def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=Non
         print(f"\nTraining safe with {opt}...")
         safe_model, safe_hist = joint_train(
             X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=100,
+            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=10,
             opt=opt, device=device, **kw
         )
         results[("safe", opt)] = (safe_model, safe_hist)
@@ -236,7 +236,7 @@ def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=Non
         print(f"\nTraining safe_neg with {opt}...")
         safe_neg_model, safe_neg_hist = joint_train(
             X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=-100,
+            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=-10,
             opt=opt, device=device, **kw
         )
         results[("safe_neg", opt)] = (safe_neg_model, safe_neg_hist)
