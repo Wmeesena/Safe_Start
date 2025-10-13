@@ -207,7 +207,9 @@ def joint_train(
 
 
 
-def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=None, opts = ["adam", "sgd"],**kw):
+def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=None, 
+                configs = [("naive", "adam"),("safe", "adam"),("unsafe", "adam"),
+                        ("naive", "sgd"),("safe", "sgd"),("unsafe", "sgd") ],**kw):
     """
     Train (naive, safe, safe_neg) × (Adam, SGD) on chosen device.
     """
@@ -216,29 +218,34 @@ def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=Non
 
     results = {}   # results[("naive","adam")] = (model, hist)
 
-    for opt in opts:
-        print(f"\nTraining naive with {opt}...")
-        naive_model, naive_hist = joint_train(
-            X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-            num_samples=num_samples, sigma=sigma, IF_SAFE=False,
-            opt=opt, device=device, **kw
-        )
-        results[("naive", opt)] = (naive_model, naive_hist)
+   
+    for cfg, opt in configs:
 
-        print(f"\nTraining safe with {opt}...")
-        safe_model, safe_hist = joint_train(
-            X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=10,
-            opt=opt, device=device, **kw
-        )
-        results[("safe", opt)] = (safe_model, safe_hist)
+        if cfg == "naive":
 
-        print(f"\nTraining safe_neg with {opt}...")
-        safe_neg_model, safe_neg_hist = joint_train(
-            X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-            num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=-10,
-            opt=opt, device=device, **kw
-        )
-        results[("safe_neg", opt)] = (safe_neg_model, safe_neg_hist)
+            print(f"\nTraining naive with {opt}...")
+            naive_model, naive_hist = joint_train(
+                X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
+                num_samples=num_samples, sigma=sigma, IF_SAFE=False,
+                opt=opt, device=device, **kw
+            )
+            results[("naive", opt)] = (naive_model, naive_hist)
+
+        elif cfg == "safe":
+            print(f"\nTraining safe with {opt}...")
+            safe_model, safe_hist = joint_train(
+                X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
+                num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=10,
+                opt=opt, device=device, **kw
+            )
+            results[("safe", opt)] = (safe_model, safe_hist)
+        elif cfg == "unsafe":
+            print(f"\nTraining safe_neg with {opt}...")
+            safe_neg_model, safe_neg_hist = joint_train(
+                X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
+                num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=-10,
+                opt=opt, device=device, **kw
+            )
+            results[("safe_neg", opt)] = (safe_neg_model, safe_neg_hist)
 
     return results
