@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import math
 import numpy as np
 from src.utils import pct, pct_ci
@@ -31,6 +32,16 @@ def _bootstrap_mean_ci(values, conf=0.95, B=1000, seed=42):
 def _model_device(model):
     return next(model.parameters()).device
 
+
+def print_last_bias_mlp(model):
+    """For your MLP class that exposes model.fc_last."""
+    b = model.fc_last.bias
+    if b is None:
+        print("fc_last has no bias.")
+        return
+    print(f"fc_last.bias shape: {tuple(b.shape)}")
+    print(b.detach().cpu().tolist())  # pretty-print as a Python list
+
 # ---------- eval with device awareness ----------
 def evaluate_avg_accuracy(X, y, model, seed=42, conf=0.95):
     """
@@ -53,64 +64,12 @@ def evaluate_avg_accuracy(X, y, model, seed=42, conf=0.95):
         print(f'Accuracy: {acc*100:.2f}%  (CI {int(conf*100)}%: [{lo*100:.2f}%, {hi*100:.2f}%])')
     return acc, (lo, hi)
 
-# def evaluate_robust(X, y, model, num_samples=100, sigma=0.1, seed=42, conf=0.95, B=1000, J_chunk=None):
-#     torch.manual_seed(seed)
-#     device = _model_device(model)
-#     dtype = X.dtype
-#     with torch.no_grad():
-#         xb = X.to(device, non_blocking=True)
-#         yb = y.to(device, non_blocking=True)
-
-#         # clean correctness mask (bool)
-#         outputs_clean = model(xb).squeeze(-1)
-#         predicted_clean = (torch.sigmoid(outputs_clean) >= 0.5)
-#         correct_bool = (predicted_clean == yb.squeeze(-1).bool())
-
-#         N = xb.shape[0]
-#         J = int(num_samples)
-#         if not J_chunk or J_chunk > J:
-#             J_chunk = J
-
-#         sum_correct = torch.zeros(N, device=device, dtype=torch.float32)
-#         total_J = 0
-#         remain = J
-#         while remain > 0:
-#             m = min(remain, J_chunk)
-#             remain -= m
-#             total_J += m
-
-#             eps = sigma * torch.randn((m,) + xb.shape, device=device, dtype=dtype)  # (m,N,feat...)
-#             x_noisy = xb.unsqueeze(0) + eps                                          # (m,N,feat...)
-#             outputs_noise = model(x_noisy).squeeze(-1)                                # (m,N)
-#             predicted_noise = (torch.sigmoid(outputs_noise) >= 0.5)
-#             y_noise = yb.expand(m, *yb.shape)                                         # (m,N,1) or (m,N)
-#             acc_chunk_sum = (predicted_noise == y_noise.squeeze(-1).bool()).float().sum(dim=0)  # (N,)
-#             sum_correct += acc_chunk_sum
-
-#         acc_per_example = sum_correct / max(total_J, 1)  # (N,)
-
-#         # RA
-#         RA = float(acc_per_example.mean().item())
-#         RA_lo, RA_hi = _bootstrap_mean_ci(acc_per_example.detach().cpu().numpy(), conf=conf, B=B, seed=seed)
-
-#         # CRA
-#         if correct_bool.any():
-#             acc_on_correct = acc_per_example[correct_bool]
-#             CRA = float(acc_on_correct.mean().item())
-#             CRA_lo, CRA_hi = _bootstrap_mean_ci(acc_on_correct.detach().cpu().numpy(), conf=conf, B=B, seed=seed)
-#         else:
-#             CRA, CRA_lo, CRA_hi = 0.0, 0.0, 0.0
-
-#         print(f'Robust Accuracy: {RA*100:.5f}%  (CI {int(conf*100)}%: [{RA_lo*100:.5f}%, {RA_hi*100:.5f}%])')
-#         print(f'Conditional Robust Accuracy: {CRA*100:.5f}%  (CI {int(conf*100)}%: [{CRA_lo*100:.5f}%, {CRA_hi*100:.5f}%])')
-
-#     return (RA, (RA_lo, RA_hi)), (CRA, (CRA_lo, CRA_hi))
 
 
 def eval_one(model, X_test, y_test, sigma, SAMPLES_EVAL, conf=0.95, B=1000, J_chunk=None, N_chunk =5000):
     acc, acc_ci = evaluate_avg_accuracy(X_test, y_test, model, conf=conf)
     (RA, RA_ci), (CRA, CRA_ci) = evaluate_robust(
-        X_test, y_test, model, num_samples=2*SAMPLES_EVAL, sigma=sigma, conf=conf, B=B, J_chunk=J_chunk
+        X_test, y_test, model, num_samples=2*SAMPLES_EVAL, sigma=sigma, conf=conf, B=B, J_chunk=J_chunk, N_chunk=N_chunk
     )
     return {"acc": acc, "acc_ci": acc_ci, "RA": RA, "RA_ci": RA_ci, "CRA": CRA, "CRA_ci": CRA_ci}
 

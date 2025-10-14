@@ -3,11 +3,29 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm.auto import tqdm
 from torch.utils.data import TensorDataset, DataLoader
+from sklearn.tree import DecisionTreeClassifier, export_text
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
 # --- optional: small speed win on CUDA for fixed-size batches ---
 torch.backends.cudnn.benchmark = True
 
 from contextlib import nullcontext
+
+
+# for decision tree baseline
+def fit_dt(name,X_train,y_train,X_test,y_test,   **tree_kwargs):
+    clf = DecisionTreeClassifier(random_state=42, **tree_kwargs)
+    clf.fit(X_train, y_train)
+    ypred = clf.predict(X_test)
+    acc = accuracy_score(y_test, ypred)
+    print(f"\n{name}: test accuracy = {acc:.4f}")
+    # show the tiny tree
+    try:
+        print(export_text(clf, feature_names=[f"x{j}" for j in range(Xtr.shape[1])]))
+    except Exception:
+        pass
+    return acc, clf
+
 
 def pretrain(X, y, model, num_epochs=10000, lr=1e-3, batch_size=256, use_amp=True, device=None):
     """
@@ -208,8 +226,8 @@ def joint_train(
 
 
 def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=None, 
-                configs = [("naive", "adam"),("safe", "adam"),("unsafe", "adam"),
-                        ("naive", "sgd"),("safe", "sgd"),("unsafe", "sgd") ],**kw):
+                configs = [("naive", "adam"),("safe", "adam"),("safe_neg", "adam"),
+                        ("naive", "sgd"),("safe", "sgd"),("safe_neg", "sgd") ],SAFE_BIAS = 10, **kw):
     """
     Train (naive, safe, safe_neg) × (Adam, SGD) on chosen device.
     """
@@ -235,15 +253,15 @@ def train_all(X, y, pre_model, num_epochs, gamma, num_samples, sigma, device=Non
             print(f"\nTraining safe with {opt}...")
             safe_model, safe_hist = joint_train(
                 X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-                num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=10,
+                num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=SAFE_BIAS,
                 opt=opt, device=device, **kw
             )
             results[("safe", opt)] = (safe_model, safe_hist)
-        elif cfg == "unsafe":
+        elif cfg == "safe_neg":
             print(f"\nTraining safe_neg with {opt}...")
             safe_neg_model, safe_neg_hist = joint_train(
                 X, y, pre_model, num_epochs=num_epochs, gamma=gamma,
-                num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=-10,
+                num_samples=num_samples, sigma=sigma, IF_SAFE=True, SAFE_BIAS=-SAFE_BIAS,
                 opt=opt, device=device, **kw
             )
             results[("safe_neg", opt)] = (safe_neg_model, safe_neg_hist)
