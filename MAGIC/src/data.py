@@ -10,8 +10,8 @@ def load_magic_data(device="cpu", train_n=14000, seed=41):
     Returns:
         X_train: (train_n, 10)
         y_train: (train_n,)
-        X_test:  (~4020, 10)
-        y_test:  (~4020,)
+        X_test:  (~5020, 10)
+        y_test:  (~5020,)
     """
     device = torch.device(device)
 
